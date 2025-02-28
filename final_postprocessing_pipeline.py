@@ -255,13 +255,98 @@ def removeOutliers(df, window_size=10, residual_variance_threshold=1.5):
     df = df.loc[:, :'za']
 
     return df
-def removeOutliers_ts(df, window_time='800ms', residual_variance_threshold=0.5):
+
+def removeOutliers_dp(df, window_size=20, residual_variance_threshold=0.8):
     """Removes outliers from a dataframe using a rolling residual variance threshold and standard deviation.
 
     Args:
         df (pandas df): _description_
-        window_time (str): _description_. Defaults to 800ms.
-        residual_variance_threshold (float, optional): _description_. Defaults to 0.5.
+        window_size (int, optional): _description_. Defaults to 20.
+        residual_variance_threshold (float, optional): _description_. Defaults to 0.8.
+
+    Returns:
+        pandas df: df of the same format as the input with all the outliers removed
+    """
+    
+    df = df.copy()
+    df['timestamp'] = pd.to_datetime(df['timestamp'], format='%H:%M:%S.%f')
+
+    # Compute residual variance from a linear fit
+    def residual_variance(y):
+        if len(y) < 2:
+            return 0
+        x = np.arange(len(y)).reshape(-1, 1) # Create an index array as the x variable
+        model = LinearRegression()
+        model.fit(x, y)  # Fit linear model
+        fitted_line = model.predict(x) # Predict the linear trend
+        residuals = y - fitted_line # Calculate residuals
+        return np.var(residuals) # Return variance of residuals
+
+    def replace_with_fit(y):
+        if len(y) < 2:
+            return y
+        x = np.arange(len(y)).reshape(-1, 1)
+        model1 = LinearRegression()
+        model1.fit(x, y)
+        fitted_line1 = model1.predict(x)
+        residuals = y - fitted_line1 
+
+        # Deviation in relation to the fitted line
+        std_res = np.std(residuals)
+
+        # No outliers to remove
+        if std_res == 0:
+            return fitted_line1
+
+        # Compares the residuals with the threshold and sets it to either true or false for each data point in the window
+        outliers_notleftout = np.abs(residuals) < (residual_variance_threshold *std_res)
+        
+        # New linear fit line without outlier points
+        if np.sum(outliers_notleftout) >= 2:
+            model2 = LinearRegression()
+            # Excludes points that are "outliers"
+            model2.fit(x[outliers_notleftout], y[outliers_notleftout])
+            fitted_line2 = model2.predict(x)
+            return fitted_line2
+        else:
+            return fitted_line1
+
+    # Detect obstacles based on residual variance
+    def detect_obstacles(data, residual_variance_threshold, window_size):
+        residual_variances = data.rolling(window=window_size).apply(residual_variance, raw=True)
+        obstacles = residual_variances > residual_variance_threshold
+        return obstacles
+
+    # Do the outlier removal for each distance column
+    for column in df.columns:
+        if not column.startswith('b'):
+            continue
+        
+        df[f'{column}_obstacle_detected'] = detect_obstacles(df[column], residual_variance_threshold, window_size)
+        adjusted_col_data = df[column].copy().astype(float)
+
+        for i in range(len(df) - window_size + 1):
+            start_index = max(0, i - window_size // 2)
+            end_index = min(len(df), i + window_size // 2)
+
+            if df[f'{column}_obstacle_detected'].iloc[start_index:end_index].any():
+                window = df[column].iloc[start_index:end_index].values
+                replacement_vals = replace_with_fit(window)
+                for j in range(start_index, end_index):
+                    curr_window_index = j - start_index
+                    adjusted_col_data.iloc[j] = replacement_vals[curr_window_index]
+
+        df[f'{column}_adjusted'] = adjusted_col_data
+    
+    return df
+
+def removeOutliers_ts(df, window_time='1s', residual_variance_threshold=0.8):
+    """Removes outliers from a dataframe using a rolling residual variance threshold and standard deviation.
+
+    Args:
+        df (pandas df): _description_
+        window_time (str): _description_. Defaults to 2000ms (10 timestamps per second, however may need to be changed).
+        residual_variance_threshold (float, optional): _description_. Defaults to 0.8.
 
     Returns:
         pandas df: df of the same format as the input with all the outliers removed
@@ -284,70 +369,8 @@ def removeOutliers_ts(df, window_time='800ms', residual_variance_threshold=0.5):
         fitted_line = model.predict(x) # Predict the linear trend
         residuals = y - fitted_line # Calculate residuals
         return np.var(residuals) # Return variance of residuals
-    
-    # Replaces outliers in the window, only considering large spikes over 0.5
+
     def replace_with_fit(y):
-        if len(y) < 2:
-            return y
-        x = np.arange(len(y)).reshape(-1, 1)
-        model1 = LinearRegression()
-        model1.fit(x,y)
-        fitted_line1 = model1.predict(x)
-        
-        # Compares the difference between each data point minus the median of the window against the threshold
-        # and gives it a boolean value not taking np.abs
-        no_outliers = (y - np.median(y)) < 0.5
-
-        # Replace vlaues that are outliers with Nan
-        false_index = np.where(no_outliers == False)[0] 
-        false = 0
-        if false_index.any():
-            for val in false_index:
-                false = val
-                y[false] = np.nan
-
-        # New linear fit line without outlier points
-        if np.sum(no_outliers) >= 2:
-            model2 = LinearRegression()
-            model2.fit(x[no_outliers], y[no_outliers])
-            fitted_line2 = model2.predict(x) # fitted_line2 = y of model2.fit
-            return fitted_line2
-        else:
-            return fitted_line1
-    
-    # Function that replaces with fit for the OG window if not enough inlier points are in our adjusted window
-    def replace_with(y):
-        if len(y) < 2:
-            return y
-        x = np.arange(len(y)).reshape(-1, 1)
-
-        nan_i = []
-        for i in range(len(y)): 
-            if np.isnan(y[i]):
-                nan_i.append(i)
-                y[i] = (len(y) // 2)
-                
-        model1 = LinearRegression()
-        model1.fit(x,y)
-        fitted_line1 = model1.predict(x)
-
-        no_outliers = np.abs(y - np.median(y)) < 0.5
-
-        for i in range(len(y)): 
-            if i in nan_i:
-                y[i] = np.nan
-
-        # New linear fit line without outlier points
-        if np.sum(no_outliers) >= 2:
-            model2 = LinearRegression()
-            model2.fit(x[no_outliers], y[no_outliers])
-            fitted_line2 = model2.predict(x) # fitted_line2 = y of model2.fit
-            return fitted_line2
-        else:
-            return fitted_line1
-        
-    # Replaces outliers in the adjusted window, now considering large spikes below 0.5 as well. 
-    def replace_fit(y, window):
         if len(y) < 2:
             return y
         x = np.arange(len(y)).reshape(-1, 1)
@@ -356,18 +379,27 @@ def removeOutliers_ts(df, window_time='800ms', residual_variance_threshold=0.5):
         fitted_line1 = model1.predict(x)
         residuals = y - fitted_line1 
 
-        no_outliers = np.abs(y - np.median(y)) < 0.5
+        # Deviation in relation to the fitted line
+        std_res = np.std(residuals)
 
+        # No outliers to remove
+        if std_res == 0:
+            return fitted_line1
+
+        # Compares the residuals with the threshold and sets it to either true or false for each data point in the window
+        outliers_notleftout = np.abs(residuals) < (residual_variance_threshold *std_res)
+        
         # New linear fit line without outlier points
-        if np.sum(no_outliers) >= 2:
+        if np.sum(outliers_notleftout) >= 2:
             model2 = LinearRegression()
-            model2.fit(x[no_outliers], y[no_outliers])
-            fitted_line2 = model2.predict(x) # fitted_line2 = y of model2.fit
+            # Excludes points that are "outliers"
+            model2.fit(x[outliers_notleftout], y[outliers_notleftout])
+            fitted_line2 = model2.predict(x)
             return fitted_line2
         else:
-            return replace_with(window)
-        
-    # Detect obstacles based on residual variance and creates a boolean col in our df whether it is an outlier or not
+            return fitted_line1
+
+    # Detect obstacles based on residual variance
     def detect_obstacles(data, residual_variance_threshold, window_time):
         residual_variances = data.rolling(window_time).apply(residual_variance, raw=True)
         residual_variances.dropna(inplace=True)
@@ -380,28 +412,26 @@ def removeOutliers_ts(df, window_time='800ms', residual_variance_threshold=0.5):
             continue
         
         # Dealing with NaN values
+        df[column] = pd.to_numeric(df[column], errors='coerce')
         df[column] = df[column].ffill()
 
         df[f'{column}_obstacle_detected'] = detect_obstacles(df[column], residual_variance_threshold, window_time)
         adjusted_col_data = df[column].copy().astype(float)
-        
+
         for current_time in df.index:
             start_time = current_time - (pd.Timedelta(window_time) / 2)
             end_time   = current_time + (pd.Timedelta(window_time) / 2)
 
-            if df[f'{column}_obstacle_detected'].loc[start_time:end_time].any(): # if true for any value in window
+            if df[f'{column}_obstacle_detected'].loc[start_time:end_time].any():
                 window = adjusted_col_data.loc[start_time:end_time].values
-                replacement_vals = replace_fit(replace_with_fit(window), window) # replacement_vals = fitted line
+                replacement_vals = replace_with_fit(window)
                 adjusted_index = adjusted_col_data.loc[start_time:end_time].index
                 adjusted_col_data.loc[adjusted_index] = replacement_vals
 
-        # df[f'{column}_adjusted'] = adjusted_col_data
-        df[column] = adjusted_col_data
-
+        df[f'{column}_adjusted'] = adjusted_col_data
 
     # Timestamps are indexed, need to be back in forms of cols
     df.reset_index(inplace=True)
-    df = df.loc[:, :'za']
     return df
 
 def velocityClamping_noplot(df):
@@ -473,6 +503,7 @@ import pandas as pd
 import itertools
 import matplotlib.pyplot as plt
 from sklearn.cluster import DBSCAN
+from matplotlib.animation import FuncAnimation
 
 def circle_intersections(p1, r1, p2, r2):
     """Finds intersection points between two circles."""
@@ -1046,7 +1077,50 @@ def plotPlayers(data, beacons, plot=True):
     if plot: plt.show()
     plt.close()
 
-    return path
+    # Create an animated version of the player movement path
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.set_xlim(beacons[:, 0].min() - 5, beacons[:, 0].max() + 5)
+    ax.set_ylim(beacons[:, 1].min() - 5, beacons[:, 1].max() + 5)
+    ax.set_xlabel('X Position')
+    ax.set_ylabel('Y Position')
+    ax.set_title(f'Player Movement Path | {title}')
+    ax.scatter(beacons[:, 0], beacons[:, 1], c='red', marker='x', label='Beacons')
+
+    # Instead of a single line, we'll use:
+    # 1. A trail of past points (low alpha)
+    # 2. A current point (full alpha)
+    past_points, = ax.plot([], [], 'o-', color='blue', alpha=0.05, label='Path History')
+    current_point, = ax.plot([], [], 'o', color='red', markersize=8, label='Current Point')
+
+    ax.legend()
+    ax.grid()
+
+    def init():
+        past_points.set_data([], [])
+        current_point.set_data([], [])
+        return past_points, current_point
+
+    def update(frame):
+        # Plot path history with low alpha
+        if frame > 0:  # Only if we have past points
+            past_points.set_data(player_positions[:frame, 0], player_positions[:frame, 1])
+        else:
+            past_points.set_data([], [])
+        
+        # Plot current point with full alpha
+        current_point.set_data([player_positions[frame, 0]], [player_positions[frame, 1]])
+        
+        return past_points, current_point
+
+    ani = FuncAnimation(fig, update, frames=len(player_positions), init_func=init, blit=True, repeat=False, interval=50)
+    anim_path = os.path.join(os.getcwd(), f'charts/{title}_path_animation.mp4')
+    ani.save(anim_path, writer='ffmpeg', fps=100, bitrate=500)
+
+    if plot:
+        plt.show()
+    plt.close()
+
+    return path, anim_path
 
 
 
@@ -1112,7 +1186,7 @@ def main():
         #beaconPositions = np.array([[0, 0], [15, 0], [0, 20], [15, 20]])
         #beaconPositions = np.array([[0, 0], [12, 0], [0, 18], [12, 18]])
         beaconPositions = np.array([[0, 0], [28.7, 0], [28.7, 25.7], [0, 25.7]])  
-        imgPath = plotPlayers(("Ground Truth", gt), beaconPositions, plot=False)
+        imgPath = plotPlayers(("Ground Truth", gt), beaconPositions, plot=False)[0]
         add_section(doc, sectionName="Ground Truth", sectionText="", imgPath=imgPath, caption="Ground Truth Player Movement Path")
 
         # Plot the final DFs
