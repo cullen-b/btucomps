@@ -898,7 +898,7 @@ def find_confidence(df, beacons):
         confidence_list = np.array(confidence_list)
         return confidence_list
 
-def plotPlayers(data, beacons, plot=True):
+def plotPlayers(data, beacons, plot=True, animate=True):
     """
     Plots the players' movements and 1d charts of the players' distances from each beacon, saves all plots to /charts
     """
@@ -1077,44 +1077,47 @@ def plotPlayers(data, beacons, plot=True):
     if plot: plt.show()
     plt.close()
 
-    # Create an animated version of the player movement path
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.set_xlim(beacons[:, 0].min() - 5, beacons[:, 0].max() + 5)
-    ax.set_ylim(beacons[:, 1].min() - 5, beacons[:, 1].max() + 5)
-    ax.set_xlabel('X Position')
-    ax.set_ylabel('Y Position')
-    ax.set_title(f'Player Movement Path | {title}')
-    ax.scatter(beacons[:, 0], beacons[:, 1], c='red', marker='x', label='Beacons')
+    if animate:
+        # Create an animated version of the player movement path
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.set_xlim(beacons[:, 0].min() - 5, beacons[:, 0].max() + 5)
+        ax.set_ylim(beacons[:, 1].min() - 5, beacons[:, 1].max() + 5)
+        ax.set_xlabel('X Position')
+        ax.set_ylabel('Y Position')
+        ax.set_title(f'Player Movement Path | {title}')
+        ax.scatter(beacons[:, 0], beacons[:, 1], c='red', marker='x', label='Beacons')
 
-    # Instead of a single line, we'll use:
-    # 1. A trail of past points (low alpha)
-    # 2. A current point (full alpha)
-    past_points, = ax.plot([], [], 'o-', color='blue', alpha=0.05, label='Path History')
-    current_point, = ax.plot([], [], 'o', color='red', markersize=8, label='Current Point')
+        # Instead of a single line, we'll use:
+        # 1. A trail of past points (low alpha)
+        # 2. A current point (full alpha)
+        past_points, = ax.plot([], [], 'o-', color='blue', alpha=0.05, label='Path History')
+        current_point, = ax.plot([], [], 'o', color='red', markersize=8, label='Current Point')
 
-    ax.legend()
-    ax.grid()
+        ax.legend()
+        ax.grid()
 
-    def init():
-        past_points.set_data([], [])
-        current_point.set_data([], [])
-        return past_points, current_point
-
-    def update(frame):
-        # Plot path history with low alpha
-        if frame > 0:  # Only if we have past points
-            past_points.set_data(player_positions[:frame, 0], player_positions[:frame, 1])
-        else:
+        def init():
             past_points.set_data([], [])
-        
-        # Plot current point with full alpha
-        current_point.set_data([player_positions[frame, 0]], [player_positions[frame, 1]])
-        
-        return past_points, current_point
+            current_point.set_data([], [])
+            return past_points, current_point
 
-    ani = FuncAnimation(fig, update, frames=len(player_positions), init_func=init, blit=True, repeat=False, interval=50)
-    anim_path = os.path.join(os.getcwd(), f'charts/{title}_path_animation.mp4')
-    ani.save(anim_path, writer='ffmpeg', fps=100, bitrate=500)
+        def update(frame):
+            # Plot path history with low alpha
+            if frame > 0:  # Only if we have past points
+                past_points.set_data(player_positions[:frame, 0], player_positions[:frame, 1])
+            else:
+                past_points.set_data([], [])
+            
+            # Plot current point with full alpha
+            current_point.set_data([player_positions[frame, 0]], [player_positions[frame, 1]])
+            
+            return past_points, current_point
+
+        ani = FuncAnimation(fig, update, frames=len(player_positions), init_func=init, blit=True, repeat=False, interval=50)
+        anim_path = os.path.join(os.getcwd(), f'charts/{title}_path_animation.mp4')
+        ani.save(anim_path, writer='ffmpeg', fps=100, bitrate=500)
+    else:
+        anim_path = ""
 
     if plot:
         plt.show()

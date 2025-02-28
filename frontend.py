@@ -102,13 +102,16 @@ if st.button("Start Pipeline"):
     # Add the cleaned data to the report
     data = (logFilePath, df)
 
+    # Ask the user if they want an animated video
+    generate_animation = st.checkbox("Generate Animated Video", value=True)
+
     # Show loading spinner while generating plots
     with st.spinner("Generating plots... (this could take a while)"):
         # 1d plots
         plot1d([data], plot=False, doc=doc)
 
         # Plot the final DFs
-        plotted = plotPlayers(data, beacon_positions, plot=False)
+        plotted = plotPlayers(data, beacon_positions, plot=False, animate=generate_animation)
         imgPath = plotted[0]
         animated = plotted[1]
 
@@ -116,7 +119,8 @@ if st.button("Start Pipeline"):
 
     
     # Add the animated mp4 to the site
-    st.video(animated, format="video/mp4", start_time=0, loop=True, autoplay=True)
+    if animated != "": 
+        st.video(animated, format="video/mp4", start_time=0, loop=True, autoplay=True)
     # add images to the site
     st.image(imgPath, caption="Player Movement Path")
     
