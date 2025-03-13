@@ -1145,8 +1145,8 @@ def main():
     # ("Plot", plotPlayers)
     tests = [("Distance Correction", distanceCorrection), ("Velocity Clamping", velocityClamping), ("Outlier Removal", removeOutliers), ("Kalman Filter", pipelineKalman), ("EMA", smoothData), ("Velocity Clamping", velocityClamping)]
     #tests = [("Distance Correction", distanceCorrection), ("Velocity Clamping", velocityClamping)]
-    filenames = ["feb23/t1-aroundsquare.csv"]
-    gt_filename = "feb23/t1-aroundsquare-groundtruth.csv"
+    filenames = ["feb9/2-9-testuwb.csv"]
+    gt_filename = "feb9/2-9-test3-groundtruth.csv"
     # show  plots or not?
     show_plots = False
     # output doc as pdf?
